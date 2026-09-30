@@ -95,5 +95,15 @@ data/raw/d435i/images/
 
 如果连接了两台相同型号的相机，使用 `--serial` 指定 `--list` 显示的序列号。数据采集阶段建议一次开启一台相机，便于区分视角并减少 USB 带宽占用。
 
+## RealSense 实时识别
+
+将训练得到的 `best.pt` 单独复制到项目根目录，连接相机后运行：
+
+```powershell
+.\.venv\Scripts\python.exe detect_realsense.py --camera d455
+```
+
+程序会自动使用可用的 NVIDIA GPU，否则使用 CPU。窗口显示实时分割结果，按 `Q` 或 `Esc` 退出。指定 D435i 时将 `d455` 改成 `d435i`；也可通过 `--serial` 选择相机。此程序只做视觉识别，不发送机械臂运动指令。
+
 官方项目：https://github.com/ultralytics/ultralytics
 官方安装文档：https://docs.ultralytics.com/quickstart/
