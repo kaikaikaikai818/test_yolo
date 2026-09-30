@@ -103,7 +103,7 @@ data/raw/d435i/images/
 .\.venv\Scripts\python.exe detect_realsense.py --camera d455
 ```
 
-程序会自动使用可用的 NVIDIA GPU，否则使用 CPU。窗口显示实时分割结果，按 `Q` 或 `Esc` 退出。指定 D435i 时将 `d455` 改成 `d435i`；也可通过 `--serial` 选择相机。此程序只做视觉识别，不发送机械臂运动指令。
+默认在画面中央显示绿色工作区框，并只识别框内区域；该范围适用于工具放在画面中央工作台的初始测试。可通过 `--roi LEFT TOP RIGHT BOTTOM` 调整范围，数值是画面宽高的比例（0 到 1）；添加 `--full-frame` 可改为全画面识别。程序会自动使用可用的 NVIDIA GPU，否则使用 CPU。按 `Q` 或 `Esc` 退出。指定 D435i 时将 `d455` 改成 `d435i`；也可通过 `--serial` 选择相机。此程序只做视觉识别，不发送机械臂运动指令。
 
 官方项目：https://github.com/ultralytics/ultralytics
 官方安装文档：https://docs.ultralytics.com/quickstart/

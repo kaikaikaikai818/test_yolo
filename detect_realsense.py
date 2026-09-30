@@ -65,6 +65,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--fps", type=int, default=30)
+    parser.add_argument(
+        "--roi",
+        nargs=4,
+        type=float,
+        metavar=("LEFT", "TOP", "RIGHT", "BOTTOM"),
+        default=(0.28, 0.10, 0.70, 0.70),
+        help="Detection area as frame fractions from 0 to 1 (default covers the center table).",
+    )
+    parser.add_argument(
+        "--full-frame",
+        action="store_true",
+        help="Detect on the full image instead of the default center-table area.",
+    )
     return parser.parse_args()
 
 
@@ -95,10 +108,14 @@ def main() -> None:
     cv2.namedWindow(window, cv2.WINDOW_NORMAL)
     profile = pipeline.start(config)
     actual_device = args.device or (0 if torch.cuda.is_available() else "cpu")
+    left, top, right, bottom = args.roi
+    if not (0 <= left < right <= 1 and 0 <= top < bottom <= 1):
+        pipeline.stop()
+        raise SystemExit("--roi values must satisfy 0 <= left < right <= 1 and 0 <= top < bottom <= 1.")
     print(f"Camera: {selected['name']} | serial={selected['serial']}")
     print(f"Model: {model_path}")
     print(f"Inference device: {actual_device}")
-    print("Press Q or Esc in the video window to quit. Robot control is not enabled.")
+    print("Green rectangle is the detection area. Press Q or Esc to quit.")
 
     previous_time = time.perf_counter()
     fps = 0.0
@@ -112,15 +129,36 @@ def main() -> None:
             if not color_frame:
                 continue
             frame = np.asanyarray(color_frame.get_data())
+            height, width = frame.shape[:2]
+            if args.full_frame:
+                x1, y1, x2, y2 = 0, 0, width, height
+            else:
+                x1 = max(0, min(width - 1, round(left * width)))
+                y1 = max(0, min(height - 1, round(top * height)))
+                x2 = max(x1 + 1, min(width, round(right * width)))
+                y2 = max(y1 + 1, min(height, round(bottom * height)))
+            roi_frame = frame[y1:y2, x1:x2]
             result = model.predict(
-                source=frame,
+                source=roi_frame,
                 imgsz=640,
                 conf=args.conf,
                 device=actual_device,
                 retina_masks=True,
                 verbose=False,
             )[0]
-            display = result.plot()
+            display = frame.copy()
+            display[y1:y2, x1:x2] = result.plot()
+            cv2.rectangle(display, (x1, y1), (x2 - 1, y2 - 1), (0, 255, 0), 2)
+            cv2.putText(
+                display,
+                "Detection area" if not args.full_frame else "Full frame",
+                (x1 + 8, max(24, y1 + 25)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.65,
+                (0, 255, 0),
+                2,
+                cv2.LINE_AA,
+            )
 
             now = time.perf_counter()
             instantaneous_fps = 1.0 / max(now - previous_time, 1e-6)
