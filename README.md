@@ -1,26 +1,37 @@
 # YOLO11-Seg 工具分割项目
 
-使用 Ultralytics YOLO11s-Seg，计划识别：螺丝刀、扳手、剪刀、胶带切割器、卷尺。
-系统使用固定安装的 RealSense D455 进行远景类别识别与粗定位，使用 UR5 末端的 D435i 进行近景精定位。目前已完成单张图片推理、实例 mask 导出和相机数据采集脚本，尚未进行自定义模型训练、相机标定或机械臂控制。
+使用 Ultralytics YOLO11s-Seg 进行工具实例分割。第一版模型包含：电工胶带、锤子、手、手锯、钳子、螺丝刀、卷尺和扳手。后续将补充剪刀与胶带切割器。
+
+系统计划使用固定安装的 RealSense D455 进行远景类别识别与粗定位，使用 UR5 末端的 D435i 进行近景精定位。目前已完成第一版自定义模型训练、单张图片推理、实例 mask 导出和相机数据采集脚本；实时双相机识别、相机标定和机械臂控制尚未实现。
+
+## 当前程序入口
+
+- `predict.py`：加载项目根目录的 `best.pt`，识别图片、视频或摄像头输入并导出 mask。
+- `run.ps1`：调用 `predict.py` 的快捷启动脚本。
+- `capture_realsense.py`：从 D455 或 D435i 预览并保存彩色图、深度图和相机参数，仅负责数据采集。
+
+训练得到的 `best.pt` 不进入 Git。使用本项目前需将权重放在仓库根目录：
+
+```text
+test_yolo/best.pt
+```
 
 ## 在另一台 Windows 电脑安装
 
 安装 Git 和 Python 3.12，然后克隆本仓库并进入仓库目录。执行：
 
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\run.ps1
 ```
 
-首次运行会自动下载官方 `yolo11s-seg.pt` 权重，需要网络。默认使用包内公交车图片并在 CPU 上测试。
-若 PowerShell 阻止脚本运行，可直接执行：
+复制 `best.pt` 到项目根目录后，对自己的图片运行：
 
 ```powershell
-.\.venv\Scripts\python.exe predict.py
+.\run.ps1 -Source 'D:\images\test.jpg'
 ```
 
-自己的图片：
+若 PowerShell 阻止脚本运行，可直接执行：
 
 ```powershell
 .\.venv\Scripts\python.exe predict.py --source 'D:\images\test.jpg'
@@ -44,9 +55,7 @@ GPU 电脑应先按照 https://pytorch.org/get-started/locally/ 安装适合驱�
 
 开始工作前执行 `git pull --ff-only`。完成代码修改后执行 `git add <文件>`、`git commit -m "说明修改"` 和 `git push`，再到另一台电脑拉取。
 
-虚拟环境、权重、原始图片、结果和本机配置不进入 Git。另一台电脑需要重建环境，权重自动下载；后续采集图片需要单独备份或传输。
-
-五类工具需自行采集与标注后训练；当前预训练模型只用于验证流程，尚不能代表五类工具识别能力。
+虚拟环境、权重、原始图片、结果和本机配置不进入 Git。另一台电脑需要重建环境，并单独复制 `best.pt`；采集图片也需要单独备份或传输。
 
 ## RealSense 数据采集
 

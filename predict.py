@@ -17,14 +17,20 @@ from ultralytics.utils import ASSETS
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", default=str(ASSETS / "bus.jpg"))
-    parser.add_argument("--device", default="cpu")
+    parser.add_argument("--model", default=str(ROOT / "best.pt"))
+    parser.add_argument("--device", default=None)
+    parser.add_argument("--conf", type=float, default=0.25)
     args = parser.parse_args()
-    model = YOLO(str(ROOT / "yolo11s-seg.pt"))
-    results = model.predict(source=args.source, device=args.device, imgsz=640,
+    model_path = Path(args.model)
+    if not model_path.is_file():
+        raise FileNotFoundError(f"Model weights not found: {model_path}")
+    model = YOLO(str(model_path))
+    results = model.predict(source=args.source, device=args.device, conf=args.conf, imgsz=640,
                             retina_masks=True, verbose=True)
     out = ROOT / "results"
     out.mkdir(exist_ok=True)
-    report = {"torch": torch.__version__, "device": args.device, "images": []}
+    report = {"model": str(model_path), "torch": torch.__version__,
+              "device": args.device or "auto", "images": []}
     for i, result in enumerate(results):
         result.save(filename=str(out / f"image_{i}_seg.jpg"))
         instances = []
