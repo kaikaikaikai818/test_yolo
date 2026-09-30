@@ -71,12 +71,15 @@ GPU 电脑应先按照 https://pytorch.org/get-started/locally/ 安装适合驱�
 .\.venv\Scripts\python.exe capture_realsense.py --list
 ```
 
-分别采集 D455 远景和 D435i 近景：
+可以分别采集两台相机，也可以同时打开 D455 和 D435i；双相机模式下按一次空格，两台相机都会保存当前画面：
 
 ```powershell
 .\.venv\Scripts\python.exe capture_realsense.py --camera d455
 .\.venv\Scripts\python.exe capture_realsense.py --camera d435i
+.\.venv\Scripts\python.exe capture_realsense.py --camera both
 ```
+
+双相机模式会弹出两个预览窗口。两台相机会同时持续取流，按空格时分别保存最新画面，并使用同一时间标记便于配对；这适合工具静止摆放时采集成对图片，不是硬件级帧同步。需要同时保存深度时，在命令末尾添加 `--save-depth`。
 
 预览窗口中按空格或 `S` 保存，按 `Q` 或 `Esc` 退出。彩色图片分别写入：
 

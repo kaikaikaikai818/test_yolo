@@ -27,9 +27,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--camera",
-        choices=("auto", "d455", "d435i"),
+        choices=("auto", "d455", "d435i", "both"),
         default="auto",
-        help="Camera model to open. Use auto only when one RealSense is connected.",
+        help="Camera model to open. Use both to save D455 and D435i together.",
     )
     parser.add_argument("--serial", help="Select a device by serial number.")
     parser.add_argument("--list", action="store_true", help="List devices and exit.")
@@ -144,61 +144,105 @@ def main() -> None:
             )
         return
 
-    selected = select_device(records, args.camera, args.serial)
-    role = camera_role(selected["name"])
-    if role == "unknown":
-        role = args.camera if args.camera != "auto" else "realsense"
-    paths = prepare_directories(args.output.resolve(), role, args.save_depth)
+    if args.camera == "both":
+        if args.serial:
+            raise SystemExit("Do not use --serial with --camera both.")
+        selected_devices = []
+        for requested_role in ("d455", "d435i"):
+            selected_devices.append(select_device(records, requested_role, None))
+    else:
+        selected_devices = [select_device(records, args.camera, args.serial)]
 
-    pipeline = rs.pipeline()
-    config = rs.config()
-    config.enable_device(selected["serial"])
-    config.enable_stream(
-        rs.stream.color, args.width, args.height, rs.format.bgr8, args.fps
-    )
-    if args.save_depth:
-        config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, args.fps)
+    cameras = []
+    for selected in selected_devices:
+        role = camera_role(selected["name"])
+        if role == "unknown":
+            role = args.camera if args.camera not in ("auto", "both") else "realsense"
+        paths = prepare_directories(args.output.resolve(), role, args.save_depth)
+        pipeline = rs.pipeline()
+        config = rs.config()
+        config.enable_device(selected["serial"])
+        config.enable_stream(
+            rs.stream.color, args.width, args.height, rs.format.bgr8, args.fps
+        )
+        if args.save_depth:
+            config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, args.fps)
 
-    profile = pipeline.start(config)
-    align = rs.align(rs.stream.color) if args.save_depth else None
-    depth_scale = (
-        profile.get_device().first_depth_sensor().get_depth_scale()
-        if args.save_depth
-        else None
-    )
-    saved = len(list(paths["images"].glob("*.jpg")))
-    window_name = f"Capture {role.upper()} - Space: save, Q/Esc: quit"
-    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        profile = pipeline.start(config)
+        cameras.append(
+            {
+                "selected": selected,
+                "role": role,
+                "paths": paths,
+                "pipeline": pipeline,
+                "align": rs.align(rs.stream.color) if args.save_depth else None,
+                "depth_scale": (
+                    profile.get_device().first_depth_sensor().get_depth_scale()
+                    if args.save_depth
+                    else None
+                ),
+                "saved": len(list(paths["images"].glob("*.jpg"))),
+                "color": None,
+                "depth": None,
+                "color_profile": None,
+            }
+        )
 
-    print(f'Opened {selected["name"]}, serial {selected["serial"]}')
-    print(f'Saving color images to {paths["images"]}')
-    try:
-        # Discard initial auto-exposure frames.
+    for camera in cameras:
+        selected = camera["selected"]
+        print(f'Opened {selected["name"]}, serial {selected["serial"]}')
+        print(f'Saving color images to {camera["paths"]["images"]}')
         for _ in range(30):
-            pipeline.wait_for_frames(5000)
+            camera["pipeline"].wait_for_frames(5000)
 
+    window_names = {}
+    for camera in cameras:
+        role = camera["role"]
+        window_name = f"Capture {role.upper()} - Space: save, Q/Esc: quit"
+        window_names[role] = window_name
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+
+    try:
         while True:
-            frames = pipeline.wait_for_frames(5000)
-            if align is not None:
-                frames = align.process(frames)
-            color_frame = frames.get_color_frame()
-            depth_frame = frames.get_depth_frame() if args.save_depth else None
-            if not color_frame or (args.save_depth and not depth_frame):
+            for camera in cameras:
+                frames = camera["pipeline"].poll_for_frames()
+                if not frames:
+                    continue
+                if camera["align"] is not None:
+                    frames = camera["align"].process(frames)
+                color_frame = frames.get_color_frame()
+                depth_frame = frames.get_depth_frame() if args.save_depth else None
+                if not color_frame or (args.save_depth and not depth_frame):
+                    continue
+                camera["color"] = np.asanyarray(color_frame.get_data()).copy()
+                camera["depth"] = (
+                    np.asanyarray(depth_frame.get_data()).copy()
+                    if depth_frame
+                    else None
+                )
+                camera["color_profile"] = color_frame.profile
+
+            if any(camera["color"] is None for camera in cameras):
+                key = cv2.waitKey(1) & 0xFF
+                if key in (ord("q"), 27):
+                    break
                 continue
 
-            color = np.asanyarray(color_frame.get_data())
-            preview = color.copy()
-            cv2.putText(
-                preview,
-                f"{role.upper()}  saved: {saved}",
-                (20, 40),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1.0,
-                (0, 255, 0),
-                2,
-                cv2.LINE_AA,
-            )
-            cv2.imshow(window_name, preview)
+            for camera in cameras:
+                role = camera["role"]
+                preview = camera["color"].copy()
+                cv2.putText(
+                    preview,
+                    f"{role.upper()}  saved: {camera['saved']}",
+                    (20, 40),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1.0,
+                    (0, 255, 0),
+                    2,
+                    cv2.LINE_AA,
+                )
+                cv2.imshow(window_names[role], preview)
+
             key = cv2.waitKey(1) & 0xFF
             if key in (ord("q"), 27):
                 break
@@ -206,37 +250,43 @@ def main() -> None:
                 continue
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-            stem = f"{role}_{timestamp}"
-            image_path = paths["images"] / f"{stem}.jpg"
-            if not cv2.imwrite(str(image_path), color, [cv2.IMWRITE_JPEG_QUALITY, 95]):
-                print(f"Failed to save {image_path}", file=sys.stderr)
-                continue
+            for camera in cameras:
+                role = camera["role"]
+                selected = camera["selected"]
+                paths = camera["paths"]
+                stem = f"{role}_{timestamp}"
+                image_path = paths["images"] / f"{stem}.jpg"
+                if not cv2.imwrite(
+                    str(image_path), camera["color"], [cv2.IMWRITE_JPEG_QUALITY, 95]
+                ):
+                    print(f"Failed to save {image_path}", file=sys.stderr)
+                    continue
 
-            metadata = {
-                "camera_role": role,
-                "camera_name": selected["name"],
-                "serial": selected["serial"],
-                "firmware": selected["firmware"],
-                "captured_at": datetime.now().astimezone().isoformat(),
-                "color_file": image_path.name,
-                "color_intrinsics": intrinsics_dict(color_frame.profile),
-            }
-            if depth_frame:
-                depth = np.asanyarray(depth_frame.get_data())
-                depth_path = paths["depth"] / f"{stem}.png"
-                cv2.imwrite(str(depth_path), depth)
-                metadata["depth_file"] = depth_path.name
-                metadata["depth_scale_meters"] = depth_scale
-                metadata["depth_aligned_to_color"] = True
+                metadata = {
+                    "camera_role": role,
+                    "camera_name": selected["name"],
+                    "serial": selected["serial"],
+                    "firmware": selected["firmware"],
+                    "captured_at": datetime.now().astimezone().isoformat(),
+                    "color_file": image_path.name,
+                    "color_intrinsics": intrinsics_dict(camera["color_profile"]),
+                }
+                if camera["depth"] is not None:
+                    depth_path = paths["depth"] / f"{stem}.png"
+                    cv2.imwrite(str(depth_path), camera["depth"])
+                    metadata["depth_file"] = depth_path.name
+                    metadata["depth_scale_meters"] = camera["depth_scale"]
+                    metadata["depth_aligned_to_color"] = True
 
-            metadata_path = paths["metadata"] / f"{stem}.json"
-            metadata_path.write_text(
-                json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-            saved += 1
-            print(f"Saved {image_path.name} (total {saved})")
+                metadata_path = paths["metadata"] / f"{stem}.json"
+                metadata_path.write_text(
+                    json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+                camera["saved"] += 1
+                print(f"Saved {image_path.name} (total {camera['saved']})")
     finally:
-        pipeline.stop()
+        for camera in cameras:
+            camera["pipeline"].stop()
         cv2.destroyAllWindows()
 
 
