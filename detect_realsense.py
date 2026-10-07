@@ -24,6 +24,21 @@ from ultralytics import YOLO
 ROOT = Path(__file__).resolve().parent
 
 
+def plot_result_with_contours(result) -> np.ndarray:
+    """Show segmentation boundaries clearly on top of YOLO's usual overlay."""
+    annotated = result.plot()
+    if result.masks is None:
+        return annotated
+
+    for polygon in result.masks.xy:
+        if len(polygon) < 3:
+            continue
+        points = np.rint(polygon).astype(np.int32).reshape(-1, 1, 2)
+        cv2.polylines(annotated, [points], True, (0, 0, 0), 4, cv2.LINE_AA)
+        cv2.polylines(annotated, [points], True, (255, 255, 255), 2, cv2.LINE_AA)
+    return annotated
+
+
 def camera_role(name: str) -> str:
     normalized = name.lower().replace(" ", "")
     if "d435i" in normalized:
@@ -147,7 +162,7 @@ def main() -> None:
                 verbose=False,
             )[0]
             display = frame.copy()
-            display[y1:y2, x1:x2] = result.plot()
+            display[y1:y2, x1:x2] = plot_result_with_contours(result)
             cv2.rectangle(display, (x1, y1), (x2 - 1, y2 - 1), (0, 255, 0), 2)
             cv2.putText(
                 display,
