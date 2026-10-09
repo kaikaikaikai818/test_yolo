@@ -130,4 +130,4 @@ data/raw/d435i/images/
 
 ## YOLO 双相机抓取入口
 
-新接入的抓取流程见 [GRASP_WORKFLOW.md](GRASP_WORKFLOW.md)。默认只做视觉定位，沿用已有标定；迁移代码已通过离线验证，尚待现场验收。单相机识别仍使用 detect_realsense.py。
+分阶段验证程序入口为 `grasp_test.py`，PowerShell 快捷启动器为 `run_grasp_test.ps1`，细节见 [GRASP_WORKFLOW.md](GRASP_WORKFLOW.md)。当前 `grasp_tool.py` 保留为旧命令兼容入口。未来接收文本命令后自动抓取和递送的正式程序将另建 `main.py`，与测试流程分开。单相机识别仍使用 `detect_realsense.py`。
