@@ -1,0 +1,79 @@
+import sys
+import unittest
+from pathlib import Path
+
+import cv2
+import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from bsp.camera_bsp.planar_orientation import (axial_difference_deg,
+                                               overhead_orientation,
+                                               principal_axis_base,
+                                               rectangular_edge_axis_base)
+
+
+class PlanarOrientationTests(unittest.TestCase):
+    def test_camera_rotation_does_not_change_base_axis(self):
+        mask = np.zeros((100, 100), dtype=bool)
+        mask[46:54, 20:80] = True
+        depth = np.full(mask.shape, 0.6)
+        def rotated(u, v, z):
+            return np.array([-v * 0.001, u * 0.001, z])
+        angle, reason = principal_axis_base(mask, depth, rotated)
+        self.assertIsNone(reason)
+        self.assertLess(axial_difference_deg(angle, np.pi / 2), 2.0)
+
+    def test_round_or_invalid_mask_is_rejected(self):
+        mask = np.zeros((80, 80), dtype=bool)
+        mask[25:55, 25:55] = True
+        angle, reason = principal_axis_base(
+            mask, np.full(mask.shape, 0.5),
+            lambda u, v, z: np.array([u * .001, v * .001, z]))
+        self.assertIsNone(angle)
+        self.assertIn("long axis", reason)
+
+    def test_closing_axis_is_perpendicular_and_tilt_remains_down(self):
+        pose = overhead_orientation(0.0, [np.pi, 0, 0])
+        target, _ = cv2.Rodrigues(np.asarray(pose))
+        self.assertAlmostEqual(abs(target[0, 0]), 0.0, places=5)
+        self.assertAlmostEqual(target[2, 2], -1.0, places=5)
+
+    def test_square_tool_chooses_nearest_of_two_grasp_axes(self):
+        # With the current wrist at zero yaw and a case axis at zero, the
+        # ordinary elongated-tool rule turns 90 degrees.  A square case can use
+        # the other pair of sides and therefore requires no yaw change.
+        ordinary = overhead_orientation(0.0, [np.pi, 0, 0])
+        square = overhead_orientation(
+            0.0, [np.pi, 0, 0], quarter_turn_symmetric=True)
+        ordinary_matrix, _ = cv2.Rodrigues(np.asarray(ordinary))
+        square_matrix, _ = cv2.Rodrigues(np.asarray(square))
+        self.assertAlmostEqual(abs(ordinary_matrix[0, 0]), 0.0, places=5)
+        self.assertAlmostEqual(square_matrix[0, 0], 1.0, places=5)
+        self.assertAlmostEqual(square_matrix[2, 2], -1.0, places=5)
+
+    def test_square_axis_stability_treats_ninety_degree_flip_as_equivalent(self):
+        self.assertAlmostEqual(
+            axial_difference_deg(0.0, np.pi / 2,
+                                 quarter_turn_symmetric=True),
+            0.0, places=5)
+        self.assertGreater(axial_difference_deg(0.0, np.pi / 2), 80.0)
+
+    def test_square_case_uses_box_edge_instead_of_pca_diagonal(self):
+        mask = np.zeros((180, 180), dtype=np.uint8)
+        box = cv2.boxPoints(((90, 90), (84, 78), 27.0)).astype(np.int32)
+        cv2.fillConvexPoly(mask, box, 1)
+        # Add an asymmetric clip-like patch that pulls PCA off a case edge.
+        mask[65:85, 105:132] = 1
+        angle, reason = rectangular_edge_axis_base(
+            mask.astype(bool), np.full(mask.shape, 0.5),
+            lambda u, v, z: np.array([u * .001, v * .001, z]))
+        self.assertIsNone(reason)
+        self.assertLess(
+            axial_difference_deg(angle, np.deg2rad(27.0),
+                                 quarter_turn_symmetric=True),
+            4.0)
+
+
+if __name__ == "__main__":
+    unittest.main()

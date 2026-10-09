@@ -127,3 +127,7 @@ data/raw/d435i/images/
 
 官方项目：https://github.com/ultralytics/ultralytics
 官方安装文档：https://docs.ultralytics.com/quickstart/
+
+## YOLO 双相机抓取入口
+
+新接入的抓取流程见 [GRASP_WORKFLOW.md](GRASP_WORKFLOW.md)。默认只做视觉定位，沿用已有标定；迁移代码已通过离线验证，尚待现场验收。单相机识别仍使用 detect_realsense.py。
