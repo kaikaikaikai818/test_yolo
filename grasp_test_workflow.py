@@ -465,11 +465,20 @@ def main():
     if ENABLE_SAFE_APPROACH_TEST:
         print("  U -> 保持当前XY和姿态，只垂直回升到至少 %.0fmm 安全高度" %
               (SAFE_TRAVEL_Z_M * 1000.0))
-    print("  R -> 已审核工具低力夹持并抬升 %.0fmm（需对应工具标定）"
-          % (SCREWDRIVER_TEST_LIFT_M * 1000.0))
-    print("  t -> 抓取成功后：垂直抬到安全搬运高度，再恢复初始标准角度")
-    print("  o -> 抓取后松开，再抬升10mm并自动恢复初始角度")
-    print("  c -> 夹爪闭合     q -> 退出")
+    if ENABLE_SCREWDRIVER_GRASP:
+        if tool_category == "screwdriver":
+            print("  [螺丝刀夹取测试] 张开=%d，闭合目标=%d，力度=%d；"
+                  "夹持高度由固定支撑面和当前手柄厚度计算。" %
+                  (GRIP_OPEN_POS, GRIP_CLOSE_POS, SCREWDRIVER_GRASP_FORCE))
+        print("  R -> 完成 P → Y → D 后，低力夹持并抬升 %.0fmm，停住等待检查"
+              % (SCREWDRIVER_TEST_LIFT_M * 1000.0))
+        print("  t -> 抓取成功后：垂直抬到安全搬运高度，再恢复初始标准角度")
+        print("  o -> 张开夹爪；若刚抓取成功，再抬升10mm并恢复初始角度")
+        print("  c -> 直接闭合夹爪（不执行抓取流程）")
+    else:
+        print("  [阶段限制] 当前 --stage %s 不控制夹爪；实际夹取使用 --stage grasp。"
+              % args.stage)
+    print("  q / Esc -> 退出程序，机械臂保持当前位置")
     print("  坐标验收: 1中心  2左侧  3右侧  4上方  5下方")
     print("  本次测量文件:", validation_log)
 
@@ -816,7 +825,8 @@ def main():
             if observation_active:
                 association_text = grasp_preview_status_text(
                     grasp_preview, ENABLE_SAFE_DESCENT_TEST, descent_ready_streak,
-                    safe_descent_completed)
+                    safe_descent_completed, grasp_enabled=ENABLE_SCREWDRIVER_GRASP,
+                    grasp_completed=grasp_completed)
                 locked_pixel = None
                 if locked_grasp_preview is not None:
                     display_tcp = tcp_pose
@@ -915,7 +925,7 @@ def main():
                     print("[安全回升] 已到安全高度；请按 q 退出本阶段。")
             elif key == ord('a'):
                 if not ENABLE_SAFE_APPROACH_TEST:
-                    print("[安全锁定] 请先将 ENABLE_SAFE_APPROACH_TEST 改为 True；默认不允许机械臂运动。")
+                    print("[阶段限制] 当前阶段不允许运动；观察点测试使用 --stage observe 或后续阶段。")
                 elif coarse_destination is None:
                     print("[安全锁定] D455 粗定位尚不可用：%s" % coarse_reason)
                 elif coarse_ready_streak < SAFE_APPROACH_CONFIRM_FRAMES:
@@ -940,7 +950,7 @@ def main():
                             print("[D455粗定位完成] 已停在目标上方；仅螺丝刀有自动抓取路径。")
             elif key == ord('p'):
                 if not ENABLE_SAFE_APPROACH_TEST:
-                    print("[安全锁定] 请先将 ENABLE_SAFE_APPROACH_TEST 改为 True；默认不允许机械臂运动。")
+                    print("[阶段限制] 当前阶段不允许运动；观察点测试使用 --stage observe 或后续阶段。")
                 elif approach_destination is None:
                     print("[安全锁定] 双相机尚未通过安全观察点门槛：%s" % approach_reason)
                 elif approach_ready_streak < SAFE_APPROACH_CONFIRM_FRAMES:
@@ -957,7 +967,7 @@ def main():
                         print("[抓取预览] D435i 将持续显示预抓取点和虚拟下降终点；不会发送运动或夹爪命令。")
             elif key == ord('d'):
                 if not ENABLE_SAFE_DESCENT_TEST:
-                    print("[安全锁定] 将 ENABLE_SAFE_DESCENT_TEST 改为 True 后才允许无接触下降测试。")
+                    print("[阶段限制] 当前阶段不允许下降；无接触下降测试使用 --stage descent 或后续阶段。")
                 elif safe_descent_completed:
                     print("[安全锁定] 本次运行已完成一次无接触下降；请重启程序后再测试。")
                 elif not observation_active:
@@ -987,7 +997,11 @@ def main():
                         print("[无接触下降] 已锁定D键触发时的目标中心；后续画面不再跟随分割中心漂移。")
             elif key == ord('r'):
                 if not ENABLE_SCREWDRIVER_GRASP:
-                    print("[安全锁定] 此工具尚未启用经过审核的抓取配置。")
+                    print("[阶段限制] 当前 --stage %s 禁用实际夹取；"
+                          "夹取测试使用 --stage grasp，并重新完成 P → Y → D。"
+                          % args.stage)
+                elif grasp_completed:
+                    print("[抓取已完成] 已夹持并抬升，拒绝重复执行 R；请先检查工具是否稳定。")
                 elif tool_category == "screwdriver" and surface_calibration is None:
                     print("[安全锁定] 未找到有效 grasp_surface_calibration.json。")
                 elif not safe_descent_completed or locked_screwdriver_handle is None:
@@ -1416,9 +1430,15 @@ def build_grasp_preview(hi_base, hi_gate, observation_active,
 
 
 def grasp_preview_status_text(preview, safe_descent_enabled=False, ready_streak=0,
-                              safe_descent_completed=False):
+                              safe_descent_completed=False, grasp_enabled=False,
+                              grasp_completed=False):
+    if grasp_completed:
+        return "GRASP COMPLETE: lifted %.0fmm; holding tool" % (
+            SCREWDRIVER_TEST_LIFT_M * 1000.0)
     if safe_descent_enabled and safe_descent_completed:
-        return "SAFE DESCENT COMPLETE: locked plan ready, press R"
+        if grasp_enabled:
+            return "SAFE DESCENT COMPLETE: locked plan ready, press R to grasp"
+        return "SAFE DESCENT COMPLETE: locked plan ready; press U to rise (grasp disabled)"
     if not preview.get("ready"):
         return "GRASP PREVIEW: " + preview.get("reason", "waiting")
     endpoint = preview["endpoint_xyz_m"]
